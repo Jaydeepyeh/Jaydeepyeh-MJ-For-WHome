@@ -290,7 +290,6 @@
 <div class="wrap">
   <div class="top-bar">
     <h1>🀄 分數計算器</h1>
-    <span class="stage" id="stageLabel">第 1 階段</span>
   </div>
 
   <div class="tabs">
@@ -323,8 +322,10 @@
     </div>
     <div class="footer-actions">
       <button class="btn btn-secondary" id="exportBtn">匯出 CSV</button>
-      <button class="btn btn-danger-outline" id="resetBtn">歸零，開新階段</button>
+      <button class="btn btn-secondary" id="importBtn">匯入 CSV</button>
     </div>
+    <input type="file" id="importFileInput" accept=".csv,text/csv" class="hidden">
+    <button class="btn btn-danger-outline" id="resetBtn">歸零，重新開始</button>
   </div>
 
   <!-- HISTORY PANEL -->
@@ -342,11 +343,27 @@
 const PLAYERS = ["王員外","林大叔","葉大師","莫莉","YaYa"];
 const KEY_TOTALS = "score-tracker:totals";
 const KEY_HISTORY = "score-tracker:history";
-const KEY_STAGE = "score-tracker:stage";
+const KEY_VERSION = "score-tracker:version";
+const KEY_IMPORT_REV = "score-tracker:import-rev";
+
+// ============================================================
+// 每次要「校正基準點」時,改這兩個地方就好:
+// 1. 把 DEFAULT_SCORES 改成你要帶入的新基準分數
+// 2. 把 DEFAULT_VERSION 的數字 +1（一定要改,不然手機不會套用新基準）
+// 改完重新上傳這個檔案蓋掉 GitHub 上的版本即可,
+// 手機端不需要手動清除資料,重新整理網頁就會自動套用新基準。
+// ============================================================
+const DEFAULT_VERSION = 1;
+const DEFAULT_SCORES = {
+  "王員外": 0,
+  "林大叔": 0,
+  "葉大師": 0,
+  "莫莉": 0,
+  "YaYa": 0
+};
 
 let totals = {};
 let history = [];
-let stage = 1;
 let inputs = {};
 
 function showToast(msg){
@@ -358,29 +375,39 @@ function showToast(msg){
 }
 
 async function loadData(){
-  try{
-    const t = localStorage.getItem(KEY_TOTALS);
-    totals = t ? JSON.parse(t) : Object.fromEntries(PLAYERS.map(p=>[p,0]));
-  }catch(e){
-    totals = Object.fromEntries(PLAYERS.map(p=>[p,0]));
-  }
-  PLAYERS.forEach(p=>{ if(!(p in totals)) totals[p]=0; });
+  let storedVersion = null;
+  try{ storedVersion = localStorage.getItem(KEY_VERSION); }catch(e){}
+  // 沒存過版本號,或版本號跟程式碼裡的不一樣 → 代表要套用新的基準分數
+  const needsNewBaseline = (storedVersion === null) || (parseInt(storedVersion, 10) !== DEFAULT_VERSION);
 
-  try{
-    const h = localStorage.getItem(KEY_HISTORY);
-    history = h ? JSON.parse(h) : [];
-  }catch(e){
+  if(needsNewBaseline){
+    totals = { ...DEFAULT_SCORES };
     history = [];
+  } else {
+    try{
+      const t = localStorage.getItem(KEY_TOTALS);
+      totals = t ? JSON.parse(t) : { ...DEFAULT_SCORES };
+    }catch(e){
+      totals = { ...DEFAULT_SCORES };
+    }
+    try{
+      const h = localStorage.getItem(KEY_HISTORY);
+      history = h ? JSON.parse(h) : [];
+    }catch(e){
+      history = [];
+    }
   }
 
-  try{
-    const s = localStorage.getItem(KEY_STAGE);
-    stage = s ? JSON.parse(s) : 1;
-  }catch(e){
-    stage = 1;
-  }
+  // 補齊萬一名單有新增玩家的情況
+  PLAYERS.forEach(p=>{
+    if(!(p in totals)) totals[p] = (p in DEFAULT_SCORES) ? DEFAULT_SCORES[p] : 0;
+  });
 
-  document.getElementById('stageLabel').textContent = `第 ${stage} 階段`;
+  if(needsNewBaseline){
+    await saveTotals();
+    await saveHistory();
+    localStorage.setItem(KEY_VERSION, String(DEFAULT_VERSION));
+  }
 }
 
 async function saveTotals(){
@@ -388,9 +415,6 @@ async function saveTotals(){
 }
 async function saveHistory(){
   localStorage.setItem(KEY_HISTORY, JSON.stringify(history));
-}
-async function saveStage(){
-  localStorage.setItem(KEY_STAGE, JSON.stringify(stage));
 }
 
 function fmt(n){
@@ -462,7 +486,7 @@ async function handleSave(){
     roundScores[p] = v;
     totals[p] = (totals[p]||0) + v;
   });
-  history.unshift({ time: new Date().toISOString(), stage, scores: roundScores });
+  history.unshift({ time: new Date().toISOString(), scores: roundScores });
   await saveTotals();
   await saveHistory();
   inputs = {};
@@ -503,7 +527,7 @@ function renderHistory(){
   list.innerHTML = '';
   history.forEach(entry=>{
     const d = new Date(entry.time);
-    const timeStr = `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} · 第${entry.stage}階段`;
+    const timeStr = `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     const div = document.createElement('div');
     div.className = 'history-item';
     const scoresHtml = PLAYERS.map(p=>{
@@ -517,28 +541,28 @@ function renderHistory(){
 }
 
 async function handleReset(){
-  if(!confirm('確定要歸零嗎？將會開始下一階段統計，目前排行榜會清空。')){
+  if(!confirm('確定要重新開始嗎？排行榜會清空，並回到目前設定的基準分數。')){
     return;
   }
-  totals = Object.fromEntries(PLAYERS.map(p=>[p,0]));
-  stage += 1;
+  totals = { ...DEFAULT_SCORES };
+  history = [];
   await saveTotals();
-  await saveStage();
-  document.getElementById('stageLabel').textContent = `第 ${stage} 階段`;
+  await saveHistory();
   renderLeaderboard();
-  showToast('已歸零，開始新階段');
+  renderHistory();
+  showToast('已重新開始');
 }
 
 function toCSV(){
   const rows = [];
-  rows.push(['時間','階段', ...PLAYERS].join(','));
+  rows.push(['時間', ...PLAYERS].join(','));
   history.slice().reverse().forEach(entry=>{
     const d = new Date(entry.time);
     const timeStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    rows.push([timeStr, entry.stage, ...PLAYERS.map(p=>entry.scores[p]||0)].join(','));
+    rows.push([timeStr, ...PLAYERS.map(p=>entry.scores[p]||0)].join(','));
   });
   rows.push('');
-  rows.push(['目前總計','', ...PLAYERS.map(p=>totals[p]||0)].join(','));
+  rows.push(['目前總計', ...PLAYERS.map(p=>totals[p]||0)].join(','));
   return rows.join('\n');
 }
 
@@ -548,12 +572,111 @@ function handleExport(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `分數紀錄_第${stage}階段_${Date.now()}.csv`;
+  a.download = `分數紀錄_${Date.now()}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   showToast('CSV 已匯出');
+}
+
+// ---------- 匯入 CSV（合併舊資料） ----------
+function parseImportCSV(text){
+  // 去掉 BOM
+  const clean = text.replace(/^\uFEFF/, '');
+  const lines = clean.split(/\r?\n/).map(l=>l.trim()).filter(l=>l !== '');
+  if(lines.length < 2) return { rows: [], error: 'CSV 內容是空的' };
+
+  const header = lines[0].split(',').map(s=>s.trim());
+  const timeIdx = header.indexOf('時間') !== -1 ? header.indexOf('時間') : 0;
+  const playerIdx = {};
+  for(const p of PLAYERS){
+    const idx = header.indexOf(p);
+    if(idx === -1) return { rows: [], error: `CSV 欄位裡找不到「${p}」，格式不符` };
+    playerIdx[p] = idx;
+  }
+
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    const cells = lines[i].split(',');
+    const firstCell = (cells[0]||'').trim();
+    // 跳過匯出檔尾端的「目前總計」統計列
+    if(firstCell === '目前總計' || firstCell === 'TOTAL' || firstCell === '') continue;
+    const time = (cells[timeIdx]||'').trim();
+    const scores = {};
+    PLAYERS.forEach(p=>{
+      scores[p] = parseFloat(cells[playerIdx[p]]) || 0;
+    });
+    rows.push({ time, scores });
+  }
+  return { rows, error: null };
+}
+
+function rowSignature(row){
+  return row.time + '|' + PLAYERS.map(p=>row.scores[p]||0).join(',');
+}
+
+function recomputeTotalsFromHistory(){
+  totals = { ...DEFAULT_SCORES };
+  history.forEach(entry=>{
+    PLAYERS.forEach(p=>{
+      totals[p] = (totals[p]||0) + (entry.scores[p]||0);
+    });
+  });
+}
+
+async function handleImportFile(file){
+  if(!file) return;
+  let text;
+  try{
+    text = await file.text();
+  }catch(e){
+    showToast('讀取檔案失敗');
+    return;
+  }
+
+  const { rows, error } = parseImportCSV(text);
+  if(error){
+    showToast(error);
+    return;
+  }
+  if(rows.length === 0){
+    showToast('這份 CSV 沒有可匯入的紀錄');
+    return;
+  }
+
+  const existingSigs = new Set(history.map(rowSignature));
+  const newRows = rows.filter(r => !existingSigs.has(rowSignature(r)));
+  const dupCount = rows.length - newRows.length;
+
+  if(newRows.length === 0){
+    showToast(`這 ${rows.length} 筆紀錄都已經在資料裡了，沒有新增`);
+    return;
+  }
+
+  const preview = {};
+  PLAYERS.forEach(p=> preview[p] = (totals[p]||0));
+  newRows.forEach(r=> PLAYERS.forEach(p=> preview[p] += (r.scores[p]||0)));
+  const previewText = PLAYERS.map(p=>`${p} ${fmt(preview[p])}`).join('　');
+
+  const confirmMsg = `即將合併 ${newRows.length} 筆新紀錄` +
+    (dupCount > 0 ? `（略過 ${dupCount} 筆重複）` : '') +
+    `。\n\n合併後總計：\n${previewText}\n\n確定要合併嗎？`;
+  if(!confirm(confirmMsg)) return;
+
+  history = history.concat(newRows);
+  recomputeTotalsFromHistory();
+  await saveTotals();
+  await saveHistory();
+
+  let importRev = 0;
+  try{ importRev = parseInt(localStorage.getItem(KEY_IMPORT_REV), 10) || 0; }catch(e){}
+  importRev += 1;
+  localStorage.setItem(KEY_IMPORT_REV, String(importRev));
+
+  renderLeaderboard();
+  renderHistory();
+  showToast(`已合併 ${newRows.length} 筆紀錄（資料版本 v${importRev}）`);
 }
 
 function setupTabs(){
@@ -583,6 +706,14 @@ async function init(){
   document.getElementById('clearRoundBtn').addEventListener('click', clearRoundInputs);
   document.getElementById('resetBtn').addEventListener('click', handleReset);
   document.getElementById('exportBtn').addEventListener('click', handleExport);
+  document.getElementById('importBtn').addEventListener('click', ()=>{
+    document.getElementById('importFileInput').click();
+  });
+  document.getElementById('importFileInput').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    await handleImportFile(file);
+    e.target.value = ''; // 允許重複選同一個檔案
+  });
 }
 
 init();
