@@ -45,10 +45,6 @@
     margin:0;
     letter-spacing:1px;
   }
-  .top-bar .stage{
-    font-size:12px;
-    color:var(--ink-soft);
-  }
   .tabs{
     display:flex;
     gap:8px;
@@ -251,11 +247,14 @@
   }
   .history-scores{
     display:flex;
-    flex-wrap:wrap;
-    gap:6px 12px;
+    flex-wrap:nowrap;
+    gap:4px 8px;
+    white-space:nowrap;
+    font-size:11px;
   }
   .history-scores span{
     font-variant-numeric: tabular-nums;
+    flex-shrink:0;
   }
   .empty-state{
     text-align:center;
@@ -298,7 +297,6 @@
     <div class="tab" data-tab="history">紀錄</div>
   </div>
 
-  <!-- INPUT PANEL -->
   <div id="panel-input">
     <div class="card">
       <h2>✏️ 本次分數</h2>
@@ -314,7 +312,6 @@
     </div>
   </div>
 
-  <!-- LEADERBOARD PANEL -->
   <div id="panel-board" class="hidden">
     <div class="card">
       <h2>🏆 總排行榜</h2>
@@ -322,13 +319,10 @@
     </div>
     <div class="footer-actions">
       <button class="btn btn-secondary" id="exportBtn">匯出 CSV</button>
-      <button class="btn btn-secondary" id="importBtn">匯入 CSV</button>
+      <button class="btn btn-danger-outline" id="resetBtn">歸零</button>
     </div>
-    <input type="file" id="importFileInput" accept=".csv,text/csv" class="hidden">
-    <button class="btn btn-danger-outline" id="resetBtn">歸零，重新開始</button>
   </div>
 
-  <!-- HISTORY PANEL -->
   <div id="panel-history" class="hidden">
     <div class="card">
       <h2>📜 存檔紀錄</h2>
@@ -340,126 +334,81 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const PLAYERS = ["王員外","林大叔","葉大師","莫莉","YaYa"];
+const PLAYERS = ["王員外", "林大叔", "葉大師", "莫莉", "YaYa"];
 const KEY_TOTALS = "score-tracker:totals";
 const KEY_HISTORY = "score-tracker:history";
-const KEY_VERSION = "score-tracker:version";
-const KEY_IMPORT_REV = "score-tracker:import-rev";
 
-// ============================================================
-// 每次要「校正基準點」時,改這兩個地方就好:
-// 1. 把 DEFAULT_SCORES 改成你要帶入的新基準分數
-// 2. 把 DEFAULT_VERSION 的數字 +1（一定要改,不然手機不會套用新基準）
-// 改完重新上傳這個檔案蓋掉 GitHub 上的版本即可,
-// 手機端不需要手動清除資料,重新整理網頁就會自動套用新基準。
-// ============================================================
-const DEFAULT_VERSION = 1;
-const DEFAULT_SCORES = {
-  "王員外": 0,
-  "林大叔": 0,
-  "葉大師": 0,
-  "莫莉": 0,
-  "YaYa": 0
-};
-
-let totals = {};
-let history = [];
+let totals = {"王員外": 110, "林大叔": -370, "葉大師": 140, "莫莉": 220, "YaYa": -100};
+let history = [{"date": "07/04", "scores": {"王員外": 110, "林大叔": -330, "葉大師": -70, "莫莉": 310, "YaYa": -20}}, {"date": "07/10", "scores": {"王員外": 0, "林大叔": -40, "葉大師": 210, "莫莉": -90, "YaYa": -80}}];
 let inputs = {};
 
-function showToast(msg){
+function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(()=>t.classList.remove('show'), 1800);
+  showToast._timer = setTimeout(function() { t.classList.remove('show'); }, 1800);
 }
 
-async function loadData(){
-  let storedVersion = null;
-  try{ storedVersion = localStorage.getItem(KEY_VERSION); }catch(e){}
-  // 沒存過版本號,或版本號跟程式碼裡的不一樣 → 代表要套用新的基準分數
-  const needsNewBaseline = (storedVersion === null) || (parseInt(storedVersion, 10) !== DEFAULT_VERSION);
-
-  if(needsNewBaseline){
-    totals = { ...DEFAULT_SCORES };
-    history = [];
-  } else {
-    try{
-      const t = localStorage.getItem(KEY_TOTALS);
-      totals = t ? JSON.parse(t) : { ...DEFAULT_SCORES };
-    }catch(e){
-      totals = { ...DEFAULT_SCORES };
-    }
-    try{
-      const h = localStorage.getItem(KEY_HISTORY);
-      history = h ? JSON.parse(h) : [];
-    }catch(e){
-      history = [];
-    }
-  }
-
-  // 補齊萬一名單有新增玩家的情況
-  PLAYERS.forEach(p=>{
-    if(!(p in totals)) totals[p] = (p in DEFAULT_SCORES) ? DEFAULT_SCORES[p] : 0;
-  });
-
-  if(needsNewBaseline){
-    await saveTotals();
-    await saveHistory();
-    localStorage.setItem(KEY_VERSION, String(DEFAULT_VERSION));
-  }
+function loadData() {
+  try {
+    const t = localStorage.getItem(KEY_TOTALS);
+    if (t) totals = JSON.parse(t);
+  } catch(e) {}
+  try {
+    const h = localStorage.getItem(KEY_HISTORY);
+    if (h) history = JSON.parse(h);
+  } catch(e) {}
 }
 
-async function saveTotals(){
+function saveTotals() {
   localStorage.setItem(KEY_TOTALS, JSON.stringify(totals));
 }
-async function saveHistory(){
+function saveHistory() {
   localStorage.setItem(KEY_HISTORY, JSON.stringify(history));
 }
 
-function fmt(n){
+function fmt(n) {
   const v = Math.round(n);
-  return (v>0?'+':'') + v;
+  return (v > 0 ? '+' : '') + v;
 }
 
-function renderInputRows(){
+function renderInputRows() {
   const container = document.getElementById('inputRows');
   container.innerHTML = '';
-  PLAYERS.forEach(p=>{
-    if(!(p in inputs)) inputs[p] = '';
+  PLAYERS.forEach(function(p) {
+    if (!(p in inputs)) inputs[p] = '';
     const row = document.createElement('div');
     row.className = 'row';
-    row.innerHTML = `
-      <span class="pname">${p}</span>
-      <input class="score-input" type="number" inputmode="numeric" placeholder="0" data-player="${p}" value="${inputs[p]}">
-      <span class="delta" id="delta-${p}"></span>
-    `;
+    row.innerHTML = '<span class="pname">' + p + '</span>' +
+      '<input class="score-input" type="number" inputmode="numeric" placeholder="0" data-player="' + p + '" value="' + inputs[p] + '">' +
+      '<span class="delta" id="delta-' + p + '"></span>';
     container.appendChild(row);
   });
-  container.querySelectorAll('.score-input').forEach(el=>{
+  container.querySelectorAll('.score-input').forEach(function(el) {
     el.addEventListener('input', onInputChange);
   });
   updateDeltasAndSum();
 }
 
-function currentSum(){
-  return PLAYERS.reduce((acc,p)=> acc + (parseFloat(inputs[p]) || 0), 0);
+function currentSum() {
+  return PLAYERS.reduce(function(acc, p) { return acc + (parseFloat(inputs[p]) || 0); }, 0);
 }
 
-function updateDeltasAndSum(){
-  PLAYERS.forEach(p=>{
+function updateDeltasAndSum() {
+  PLAYERS.forEach(function(p) {
     const val = parseFloat(inputs[p]) || 0;
-    const el = document.getElementById('delta-'+p);
-    if(!el) return;
+    const el = document.getElementById('delta-' + p);
+    if (!el) return;
     el.textContent = val === 0 ? '+0' : fmt(val);
-    el.className = 'delta ' + (val>0?'pos':val<0?'neg':'zero');
+    el.className = 'delta ' + (val > 0 ? 'pos' : val < 0 ? 'neg' : 'zero');
   });
   const sum = currentSum();
   const sumBar = document.getElementById('sumBar');
   const sumVal = document.getElementById('sumVal');
   sumVal.textContent = fmt(sum);
-  const anyEntered = PLAYERS.some(p => inputs[p] !== '' && inputs[p] !== undefined);
-  if(sum === 0 && anyEntered){
+  const anyEntered = PLAYERS.some(function(p) { return inputs[p] !== '' && inputs[p] !== undefined; });
+  if (sum === 0 && anyEntered) {
     sumBar.className = 'sum-bar ok';
   } else {
     sumBar.className = 'sum-bar bad';
@@ -467,28 +416,30 @@ function updateDeltasAndSum(){
   document.getElementById('saveBtn').disabled = !(sum === 0 && anyEntered);
 }
 
-function onInputChange(e){
+function onInputChange(e) {
   const p = e.target.dataset.player;
   inputs[p] = e.target.value;
   updateDeltasAndSum();
 }
 
-async function handleSave(){
+function handleSave() {
   const sum = currentSum();
-  const anyEntered = PLAYERS.some(p => inputs[p] !== '' && inputs[p] !== undefined);
-  if(sum !== 0 || !anyEntered){
+  const anyEntered = PLAYERS.some(function(p) { return inputs[p] !== '' && inputs[p] !== undefined; });
+  if (sum !== 0 || !anyEntered) {
     showToast('分數總和必須等於 0 才能存檔');
     return;
   }
   const roundScores = {};
-  PLAYERS.forEach(p=>{
+  PLAYERS.forEach(function(p) {
     const v = parseFloat(inputs[p]) || 0;
     roundScores[p] = v;
-    totals[p] = (totals[p]||0) + v;
+    totals[p] = (totals[p] || 0) + v;
   });
-  history.unshift({ time: new Date().toISOString(), scores: roundScores });
-  await saveTotals();
-  await saveHistory();
+  const today = new Date();
+  const dateStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  history.unshift({ date: dateStr, scores: roundScores });
+  saveTotals();
+  saveHistory();
   inputs = {};
   renderInputRows();
   renderLeaderboard();
@@ -496,83 +447,74 @@ async function handleSave(){
   showToast('存檔成功，發財了！🎉');
 }
 
-function clearRoundInputs(){
+function clearRoundInputs() {
   inputs = {};
   renderInputRows();
 }
 
-function renderLeaderboard(){
+function renderLeaderboard() {
   const list = document.getElementById('leaderList');
-  const sorted = [...PLAYERS].sort((a,b)=> (totals[b]||0) - (totals[a]||0));
+  const sorted = PLAYERS.slice().sort(function(a, b) { return (totals[b] || 0) - (totals[a] || 0); });
   list.innerHTML = '';
-  sorted.forEach((p,i)=>{
+  sorted.forEach(function(p, i) {
     const val = totals[p] || 0;
     const row = document.createElement('div');
     row.className = 'leader-row';
-    row.innerHTML = `
-      <div class="rank-badge ${i===0?'gold':''}">${i+1}</div>
-      <div class="leader-name">${p}</div>
-      <div class="leader-score ${val>0?'pos':val<0?'neg':'zero'}">${fmt(val)}</div>
-    `;
+    row.innerHTML = '<div class="rank-badge ' + (i === 0 ? 'gold' : '') + '">' + (i+1) + '</div>' +
+      '<div class="leader-name">' + p + '</div>' +
+      '<div class="leader-score ' + (val > 0 ? 'pos' : val < 0 ? 'neg' : 'zero') + '">' + fmt(val) + '</div>';
     list.appendChild(row);
   });
 }
 
-function renderHistory(){
+function renderHistory() {
   const list = document.getElementById('historyList');
-  if(history.length === 0){
+  if (history.length === 0) {
     list.innerHTML = '<div class="empty-state">還沒有任何存檔紀錄</div>';
     return;
   }
   list.innerHTML = '';
-  history.forEach(entry=>{
-    const d = new Date(entry.time);
-    const timeStr = `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  history.forEach(function(entry) {
     const div = document.createElement('div');
     div.className = 'history-item';
-    const scoresHtml = PLAYERS.map(p=>{
+    const scoresHtml = PLAYERS.map(function(p) {
       const v = entry.scores[p] || 0;
-      const cls = v>0?'pos':v<0?'neg':'zero';
-      return `<span>${p} <b class="${cls}">${fmt(v)}</b></span>`;
+      const cls = v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero';
+      return '<span>' + p + ' <b class="' + cls + '">' + fmt(v) + '</b></span>';
     }).join('');
-    div.innerHTML = `<div class="history-time">${timeStr}</div><div class="history-scores">${scoresHtml}</div>`;
+    div.innerHTML = '<div class="history-time">' + entry.date + '</div><div class="history-scores">' + scoresHtml + '</div>';
     list.appendChild(div);
   });
 }
 
-async function handleReset(){
-  if(!confirm('確定要重新開始嗎？排行榜會清空，並回到目前設定的基準分數。')){
+function handleReset() {
+  if (!confirm('確定要歸零嗎？目前排行榜會清空。')) {
     return;
   }
-  totals = { ...DEFAULT_SCORES };
-  history = [];
-  await saveTotals();
-  await saveHistory();
+  PLAYERS.forEach(function(p) { totals[p] = 0; });
+  saveTotals();
   renderLeaderboard();
-  renderHistory();
-  showToast('已重新開始');
+  showToast('已歸零');
 }
 
-function toCSV(){
+function toCSV() {
   const rows = [];
-  rows.push(['時間', ...PLAYERS].join(','));
-  history.slice().reverse().forEach(entry=>{
-    const d = new Date(entry.time);
-    const timeStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    rows.push([timeStr, ...PLAYERS.map(p=>entry.scores[p]||0)].join(','));
+  rows.push(['日期'].concat(PLAYERS).join(','));
+  history.slice().reverse().forEach(function(entry) {
+    rows.push([entry.date].concat(PLAYERS.map(function(p) { return entry.scores[p] || 0; })).join(','));
   });
   rows.push('');
-  rows.push(['目前總計', ...PLAYERS.map(p=>totals[p]||0)].join(','));
+  rows.push(['目前總計', ''].concat(PLAYERS.map(function(p) { return totals[p] || 0; })).join(','));
   return rows.join('\n');
 }
 
-function handleExport(){
+function handleExport() {
   const csv = toCSV();
-  const blob = new Blob(["\uFEFF"+csv], {type:'text/csv;charset=utf-8;'});
+  const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `分數紀錄_${Date.now()}.csv`;
+  a.download = '分數紀錄_' + new Date().toISOString().split('T')[0] + '.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -580,125 +522,26 @@ function handleExport(){
   showToast('CSV 已匯出');
 }
 
-// ---------- 匯入 CSV（合併舊資料） ----------
-function parseImportCSV(text){
-  // 去掉 BOM
-  const clean = text.replace(/^\uFEFF/, '');
-  const lines = clean.split(/\r?\n/).map(l=>l.trim()).filter(l=>l !== '');
-  if(lines.length < 2) return { rows: [], error: 'CSV 內容是空的' };
-
-  const header = lines[0].split(',').map(s=>s.trim());
-  const timeIdx = header.indexOf('時間') !== -1 ? header.indexOf('時間') : 0;
-  const playerIdx = {};
-  for(const p of PLAYERS){
-    const idx = header.indexOf(p);
-    if(idx === -1) return { rows: [], error: `CSV 欄位裡找不到「${p}」，格式不符` };
-    playerIdx[p] = idx;
-  }
-
-  const rows = [];
-  for(let i=1;i<lines.length;i++){
-    const cells = lines[i].split(',');
-    const firstCell = (cells[0]||'').trim();
-    // 跳過匯出檔尾端的「目前總計」統計列
-    if(firstCell === '目前總計' || firstCell === 'TOTAL' || firstCell === '') continue;
-    const time = (cells[timeIdx]||'').trim();
-    const scores = {};
-    PLAYERS.forEach(p=>{
-      scores[p] = parseFloat(cells[playerIdx[p]]) || 0;
-    });
-    rows.push({ time, scores });
-  }
-  return { rows, error: null };
-}
-
-function rowSignature(row){
-  return row.time + '|' + PLAYERS.map(p=>row.scores[p]||0).join(',');
-}
-
-function recomputeTotalsFromHistory(){
-  totals = { ...DEFAULT_SCORES };
-  history.forEach(entry=>{
-    PLAYERS.forEach(p=>{
-      totals[p] = (totals[p]||0) + (entry.scores[p]||0);
-    });
-  });
-}
-
-async function handleImportFile(file){
-  if(!file) return;
-  let text;
-  try{
-    text = await file.text();
-  }catch(e){
-    showToast('讀取檔案失敗');
-    return;
-  }
-
-  const { rows, error } = parseImportCSV(text);
-  if(error){
-    showToast(error);
-    return;
-  }
-  if(rows.length === 0){
-    showToast('這份 CSV 沒有可匯入的紀錄');
-    return;
-  }
-
-  const existingSigs = new Set(history.map(rowSignature));
-  const newRows = rows.filter(r => !existingSigs.has(rowSignature(r)));
-  const dupCount = rows.length - newRows.length;
-
-  if(newRows.length === 0){
-    showToast(`這 ${rows.length} 筆紀錄都已經在資料裡了，沒有新增`);
-    return;
-  }
-
-  const preview = {};
-  PLAYERS.forEach(p=> preview[p] = (totals[p]||0));
-  newRows.forEach(r=> PLAYERS.forEach(p=> preview[p] += (r.scores[p]||0)));
-  const previewText = PLAYERS.map(p=>`${p} ${fmt(preview[p])}`).join('　');
-
-  const confirmMsg = `即將合併 ${newRows.length} 筆新紀錄` +
-    (dupCount > 0 ? `（略過 ${dupCount} 筆重複）` : '') +
-    `。\n\n合併後總計：\n${previewText}\n\n確定要合併嗎？`;
-  if(!confirm(confirmMsg)) return;
-
-  history = history.concat(newRows);
-  recomputeTotalsFromHistory();
-  await saveTotals();
-  await saveHistory();
-
-  let importRev = 0;
-  try{ importRev = parseInt(localStorage.getItem(KEY_IMPORT_REV), 10) || 0; }catch(e){}
-  importRev += 1;
-  localStorage.setItem(KEY_IMPORT_REV, String(importRev));
-
-  renderLeaderboard();
-  renderHistory();
-  showToast(`已合併 ${newRows.length} 筆紀錄（資料版本 v${importRev}）`);
-}
-
-function setupTabs(){
+function setupTabs() {
   const tabs = document.querySelectorAll('.tab');
   const panels = {
     input: document.getElementById('panel-input'),
     board: document.getElementById('panel-board'),
-    history: document.getElementById('panel-history'),
+    history: document.getElementById('panel-history')
   };
-  tabs.forEach(tab=>{
-    tab.addEventListener('click', ()=>{
-      tabs.forEach(t=>t.classList.remove('active'));
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      tabs.forEach(function(t) { t.classList.remove('active'); });
       tab.classList.add('active');
-      Object.values(panels).forEach(p=>p.classList.add('hidden'));
+      Object.values(panels).forEach(function(p) { p.classList.add('hidden'); });
       panels[tab.dataset.tab].classList.remove('hidden');
     });
   });
 }
 
-async function init(){
+function init() {
   setupTabs();
-  await loadData();
+  loadData();
   renderInputRows();
   renderLeaderboard();
   renderHistory();
@@ -706,14 +549,6 @@ async function init(){
   document.getElementById('clearRoundBtn').addEventListener('click', clearRoundInputs);
   document.getElementById('resetBtn').addEventListener('click', handleReset);
   document.getElementById('exportBtn').addEventListener('click', handleExport);
-  document.getElementById('importBtn').addEventListener('click', ()=>{
-    document.getElementById('importFileInput').click();
-  });
-  document.getElementById('importFileInput').addEventListener('change', async (e)=>{
-    const file = e.target.files[0];
-    await handleImportFile(file);
-    e.target.value = ''; // 允許重複選同一個檔案
-  });
 }
 
 init();
